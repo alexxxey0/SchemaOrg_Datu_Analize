@@ -3,6 +3,7 @@ from collections import Counter, defaultdict
 import matplotlib.pyplot as plt
 import os
 import time
+import gc
 from urllib.request import urlretrieve
 from urllib.error import URLError, HTTPError
 
@@ -153,7 +154,74 @@ def parse_and_count_classes(filenames, schema_org_class_name, year):
 
     plt.tight_layout()
     plt.savefig(f"../diagrammas/{schema_org_class_name}_{year}_top_10_classes.png")
-    plt.show()
+    
+    classes_in_graphs = None
+    classes_frequency = None
+    gc.collect()
+    # plt.show()
+    
+    
+def parse_and_count_predicates(filenames, schema_org_class_name, year):
+    predicate_counter = Counter()
+    subj_pred_pairs = set()
+    current_subject_has_class = False
+    
+    for filename in filenames:
+        with gzip.open(filename, 'rt', encoding='utf-8') as f:
+            for line in f:
+
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                
+                try:
+                    s, p, o, g, _ = line.split()
+                except ValueError:
+                    continue
+                
+                if p == "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>":
+                    if o == f"<http://schema.org/{schema_org_class_name}>":
+                        current_subject_has_class = True
+                    else:
+                        current_subject_has_class = False
+                
+                if current_subject_has_class:
+                    if (s, p) not in subj_pred_pairs:
+                        predicate_counter[p] += 1
+                        subj_pred_pairs.add((s ,p))
+                        
+    top_predicates = predicate_counter.most_common(10)
+
+    print(f"\nTop 10 predikāti {year}:")
+
+    # Īpašība; entītiju skaits, kas izmanto; procents no kopējā entītiju skaita
+    # Tā kā katra entītija sākas ar tipa predikātu, tipa predikātu skaitu var uzskatīt par entītiju skaitu
+    entity_count = predicate_counter["<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>"]
+    for p, count in top_predicates:
+        print(p, count, str(round(100 * (count / entity_count), 2)) + "%")
+        
+    predicates = [p for p, c in top_predicates]
+    counts = [c for p, c in top_predicates]
+    percentages = [round(100 * c / (predicate_counter["<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>"]), 2) for c in counts]
+
+    plt.figure(figsize=(12, 6))
+    plt.barh(predicates, counts)
+    plt.xlabel("Entītiju skaits")
+    plt.title(f"Top 10 predikāti klasei {schema_org_class_name} {year}. gada datu kopā")
+    plt.gca().invert_yaxis()
+
+    
+    for i, (c, pct) in enumerate(zip(counts, percentages)):
+        plt.text(c + entity_count * 0.01, i, f"{c} ({pct}%)", va="center")
+
+    plt.tight_layout()
+    plt.savefig(f"../diagrammas/{schema_org_class_name}_{year}_top_10_predicates.png")
+    
+    predicate_counter = None
+    subj_pred_pairs = None
+    gc.collect()
+    # plt.show()
+                    
     
     
 def download_files(urls, output_dir, filenames=None, delay_seconds=5):
