@@ -1,6 +1,10 @@
 import gzip
 from collections import Counter, defaultdict
 import matplotlib.pyplot as plt
+import os
+import time
+from urllib.request import urlretrieve
+from urllib.error import URLError, HTTPError
 
 # Funkcija, kas izveido RDF četrinieku sarakstu no .gz faila vai failiem
 # Jāpadod faila vārds un Schema.org klases vārds, piemēram, School
@@ -150,3 +154,39 @@ def parse_and_count_classes(filenames, schema_org_class_name, year):
     plt.tight_layout()
     plt.savefig(f"../diagrammas/{schema_org_class_name}_{year}_top_10_classes.png")
     plt.show()
+    
+    
+def download_files(urls, output_dir, filenames=None, delay_seconds=5):
+    """
+    Download files one by one with a safety delay between downloads.
+
+    :param urls: List of file URLs to download
+    :param output_dir: Directory where files will be saved
+    :param filenames: Optional list of filenames (same length as urls)
+    :param delay_seconds: Delay between downloads in seconds
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    if filenames and len(filenames) != len(urls):
+        raise ValueError("filenames list must be the same length as urls")
+
+    for index, url in enumerate(urls):
+        filename = (
+            filenames[index]
+            if filenames
+            else os.path.basename(url)
+        )
+        file_path = os.path.join(output_dir, filename)
+
+        print(f"Downloading {url} → {file_path}")
+
+        try:
+            urlretrieve(url, file_path)
+            print("✔ Download complete")
+        except (HTTPError, URLError) as e:
+            print(f"✖ Failed to download {url}: {e}")
+
+        if index < len(urls) - 1:
+            print(f"Waiting {delay_seconds} seconds before next download...\n")
+            time.sleep(delay_seconds)
+
