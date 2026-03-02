@@ -5,6 +5,7 @@ import os
 import time
 import gc
 import re
+import tldextract
 from urllib.request import urlretrieve
 from urllib.error import URLError, HTTPError
 
@@ -498,4 +499,65 @@ def parse_and_count_predicates_all_classes(filenames, schema_org_class_name, yea
     predicate_counter = None
     subj_pred_pairs = None
     gc.collect()
+    
+    
+def parse_and_count_domain_suffixes(filenames, schema_org_class_name, year):
+    suffix_counter = Counter()
+    subj_base_domain_pairs = set()
+    
+    for filename in filenames:
+        with gzip.open(filename, 'rt', encoding='utf-8') as f:
+            for line in f:
+
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                
+                try:
+                    s, p, o, g, _ = line.split()
+                except ValueError:
+                    continue
+                
+                if p == "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>" and o == f"<http://schema.org/{schema_org_class_name}>":
+                    
+                    extracted_url = tldextract.extract(g.strip("<>"))
+                    base_domain = extracted_url.domain + "." + extracted_url.suffix
+                    
+                    if (s, base_domain) not in subj_base_domain_pairs:
+                        # Get the domain suffix
+                        graph_suffix = tldextract.extract(g.strip("<>")).suffix
+                        suffix_counter[graph_suffix] += 1
+                        subj_base_domain_pairs.add((s, base_domain))
+                        
+    top_suffixes = suffix_counter.most_common(10)
+
+    print(f"\nTop 10 sufiksi {year}:")
+    
+    entity_count = sum(suffix_counter.values())
+    
+    for s, count in top_suffixes:
+        print(s, count, str(round(100 * (count / entity_count), 2)) + "%")
+        
+    suffixes = [s for s, c in top_suffixes]
+    counts = [c for s, c in top_suffixes]
+    percentages = [round(100 * c / (entity_count), 2) for c in counts]
+
+    plt.figure(figsize=(12, 6))
+    plt.barh(suffixes, counts)
+    plt.xlabel("Entītiju skaits")
+    plt.title(f"Top 10 domēnu sufiksi klasei {schema_org_class_name} {year}. gada datu kopā")
+    plt.gca().invert_yaxis()
+
+    
+    for i, (c, pct) in enumerate(zip(counts, percentages)):
+        plt.text(c + entity_count * 0.01, i, f"{c} ({pct}%)", va="center")
+
+    plt.tight_layout()
+    plt.savefig(f"../diagrammas/{schema_org_class_name}_{year}_top_10_suffixes.png")
+    
+    suffix_counter = None
+    subj_base_domain_pairs = None
+    gc.collect()
+    # plt.show()
+    
                     
