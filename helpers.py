@@ -559,5 +559,80 @@ def parse_and_count_domain_suffixes(filenames, schema_org_class_name, year):
     subj_base_domain_pairs = None
     gc.collect()
     # plt.show()
+
+
+# Ja with_repeats == True, tiek skaitīti arī viena predikāta atkārtojumi, pretējā gadījumā tiek skaitīti tikai unikāli predikāti katrai entītijai
+
+def parse_and_count_min_max_avg_predicates(filenames, schema_org_class_name, year, with_repeats=True):
+    max_predicates = 0
+    min_predicates = 0
+    total_predicate_count = 0
+    entity_count = 0
+    current_entity_predicate_count = 0
+    current_entity_has_class = False
+    current_entity_predicates = set()
+    
+    for filename in filenames:
+        with gzip.open(filename, 'rt', encoding='utf-8') as f:
+            for line in f:
+
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                
+                try:
+                    s, p, o, g, _ = line.split()
+                except ValueError:
+                    continue
+                
+                if p == "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>":
+            
+                    # Process the previous entity
+                    if current_entity_has_class:
+                        total_predicate_count += current_entity_predicate_count
+                        
+                        if current_entity_predicate_count > max_predicates:
+                            max_predicates = current_entity_predicate_count
+                            
+                        if (current_entity_predicate_count < min_predicates) or (min_predicates == 0):
+                            min_predicates = current_entity_predicate_count
+                        
+                    current_entity_predicate_count = 0
+                    current_entity_predicates = set()
+                    current_entity_has_class = False
+                    
+                    if o == f"<http://schema.org/{schema_org_class_name}>":
+                        current_entity_has_class = True
+                        entity_count += 1
+                    
+                    
+                if current_entity_has_class:
+                    if with_repeats:
+                        current_entity_predicate_count += 1
+                    else:
+                        if p not in current_entity_predicates:
+                            current_entity_predicate_count += 1
+                            current_entity_predicates.add(p)
+    
+    # Pēdējas entītijas apstrāde
+    if current_entity_has_class:
+        total_predicate_count += current_entity_predicate_count
+
+        if current_entity_predicate_count > max_predicates:
+            max_predicates = current_entity_predicate_count
+            
+        if (current_entity_predicate_count < min_predicates) or (min_predicates == 0):
+            min_predicates = current_entity_predicate_count               
+                    
+    average_predicate_count = total_predicate_count / entity_count
+    
+    if with_repeats:
+        print("Ar atkārtojumiem")
+    else:
+        print("Bez atkārtojumiem (tikai unikāli predikāti)")
+        
+    print(f"Minimālais predikātus skaits: {min_predicates}")
+    print(f"Maksimālais predikātu skaits: {max_predicates}")
+    print(f"Vidējais predikātu skaits: {round(average_predicate_count, 2)}")
     
                     
