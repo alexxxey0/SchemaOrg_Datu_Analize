@@ -6,6 +6,7 @@ import time
 import gc
 import re
 import tldextract
+import math
 from urllib.request import urlretrieve
 from urllib.error import URLError, HTTPError
 
@@ -635,4 +636,71 @@ def parse_and_count_min_max_avg_predicates(filenames, schema_org_class_name, yea
     print(f"Maksimālais predikātu skaits: {max_predicates}")
     print(f"Vidējais predikātu skaits: {round(average_predicate_count, 2)}")
     
+'''
+Izrēķināt vidējo vērtību un standartnovirzi
+
+Lai aprēķinātu standartnovirzi, tiek izmantots Welford's online algorithm
+https://www.johndcook.com/blog/standard_deviation/
+https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
+'''
+def parse_mean_std_predicates(filenames, schema_org_class_name, with_repeats=True):
+
+    
+    n = 0 # entītiju skaits
+    mean = 0.0 # pašreizējais vidējais vērtība (running mean)
+    M2 = 0.0 # pašreizējā kvadrātu starpību no vidējā summa (running sum of squared differences from mean)
+    
+    current_entity_predicate_count = 0
+    current_entity_has_class = False
+    current_entity_predicates = set()
+    
+    for filename in filenames:
+        with gzip.open(filename, 'rt', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                
+                try:
+                    s, p, o, g, _ = line.split()
+                except ValueError:
+                    continue
+                
+                
+                if p == "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>":
                     
+                    if current_entity_has_class:
+                        n += 1
+                        delta = current_entity_predicate_count - mean
+                        mean += delta / n
+                        M2 += delta * (current_entity_predicate_count - mean)
+                    
+                    current_entity_predicate_count = 0
+                    current_entity_predicates = set()
+                    current_entity_has_class = False
+                    
+                    if o == f"<http://schema.org/{schema_org_class_name}>":
+                        current_entity_has_class = True
+                
+                if current_entity_has_class:
+                    if with_repeats:
+                        current_entity_predicate_count += 1
+                    else:
+                        if p not in current_entity_predicates:
+                            current_entity_predicate_count += 1
+                            current_entity_predicates.add(p)
+    
+    # Apstrādāt pēdējo entītiju
+    if current_entity_has_class:
+        n += 1
+        delta = current_entity_predicate_count - mean
+        mean += delta / n
+        M2 += delta * (current_entity_predicate_count - mean)
+    
+    # Izrēķināt standartnovirzi
+    if n > 0:
+        std_dev = math.sqrt(M2 / n)
+    else:
+        std_dev = 0.0
+    
+    return mean, std_dev
