@@ -9,6 +9,7 @@ import tldextract
 import math
 from urllib.request import urlretrieve
 from urllib.error import URLError, HTTPError
+from itertools import combinations
 
 # Funkcija, kas izveido RDF četrinieku sarakstu no .gz faila vai failiem
 # Jāpadod faila vārds un Schema.org klases vārds, piemēram, School
@@ -476,12 +477,19 @@ def parse_and_count_predicates_all_classes(filenames, schema_org_class_name, yea
         # Īpašība; entītiju skaits, kas izmanto; procents no kopējā entītiju skaita
         # Tā kā katra entītija sākas ar tipa predikātu, tipa predikātu skaitu var uzskatīt par entītiju skaitu
         entity_count = predicate_counter["<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>"]
+        if entity_count == 0:
+            entity_count = 1
+            
         for p, count in top_predicates:
             print(p, count, str(round(100 * (count / entity_count), 2)) + "%")
             
         predicates = [p for p, c in top_predicates]
         counts = [c for p, c in top_predicates]
-        percentages = [round(100 * c / (predicate_counter["<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>"]), 2) for c in counts]
+        
+        predicate_count = predicate_counter["<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>"]
+        if predicate_count == 0:
+            predicate_count = 1
+        percentages = [round(100 * c / (predicate_count["<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>"]), 2) for c in counts]
 
         plt.figure(figsize=(12, 6))
         plt.barh(predicates, counts)
@@ -704,3 +712,93 @@ def parse_mean_std_predicates(filenames, schema_org_class_name, with_repeats=Tru
         std_dev = 0.0
     
     return mean, std_dev
+
+
+def parse_and_count_property_pairs(filenames, schema_org_class_name, year):
+    property_pairs = Counter()  # global dict for pairs
+    current_entity_properties = set()
+    current_subject_has_class = False
+    previous_subject = None
+    entity_count = 0
+
+    for filename in filenames:
+        with gzip.open(filename, 'rt', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                
+                try:
+                    s, p, o, g, _ = line.split()
+                except ValueError:
+                    continue
+
+                
+                if s != previous_subject:
+                    
+                    if current_subject_has_class and len(current_entity_properties) > 1:
+                        # Generate all unordered pairs (A,B) where A < B
+                        for prop1, prop2 in combinations(sorted(current_entity_properties), 2):
+                            property_pairs[(prop1, prop2)] += 1
+                            
+                    current_entity_properties.clear()
+                    current_subject_has_class = False
+                    previous_subject = s
+
+                # Check if entity is of target class
+                if p == "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>":
+                    if o == f"<http://schema.org/{schema_org_class_name}>":
+                        current_subject_has_class = True
+                        entity_count += 1
+
+                # Add predicate to current entity's set if it belongs to the class and is not the type predicate
+                if current_subject_has_class and p != "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>":
+                    current_entity_properties.add(p)
+
+    # Process last entity in file
+    if current_subject_has_class and len(current_entity_properties) > 1:
+        for prop1, prop2 in combinations(sorted(current_entity_properties), 2):
+            property_pairs[(prop1, prop2)] += 1
+
+    # Output top 10 most common property pairs
+    top_pairs = property_pairs.most_common(10)
+    print(f"\nTop 10 property pairs for {schema_org_class_name} ({year}):")
+    for pair, count in top_pairs:
+        print(f"{pair[0]} , {pair[1]} : {count}")
+    
+    print()
+        
+    print("Īpašība 1,Īpašība 2,Biežums")  # CSV header
+    for pair, count in top_pairs:
+        prop1_name = pair[0].strip("<>").replace("http://schema.org/", "")
+        prop2_name = pair[1].strip("<>").replace("http://schema.org/", "")
+        print(f"{prop1_name},{prop2_name},{count}")
+    print()
+    
+    # Prepare labels and values
+    pair_labels = []
+    counts = []
+    percentages = []
+
+    for (p1, p2), count in top_pairs:
+        p1_name = p1.strip("<>").replace("http://schema.org/", "")
+        p2_name = p2.strip("<>").replace("http://schema.org/", "")
+        
+        pair_labels.append(f"{p1_name} + {p2_name}")
+        counts.append(count)
+        percentages.append(round(100 * count / entity_count, 2))
+
+    # Plot
+    plt.figure(figsize=(12, 6))
+    plt.barh(pair_labels, counts)
+    plt.xlabel("Entītiju skaits, kur īpašības parādās kopā")
+    plt.title(f"Top 10 īpašību pāri, kas parādās kopā klasei {schema_org_class_name} ({year})")
+    plt.gca().invert_yaxis()
+
+    # Annotate with count + percentage
+    for i, (c, pct) in enumerate(zip(counts, percentages)):
+        plt.text(c + entity_count * 0.005, i, f"{c} ({pct}%)", va="center")
+
+    plt.tight_layout()
+    plt.savefig(f"../diagrammas/{schema_org_class_name}_{year}_top_10_property_pairs.png")
+    # plt.show()
